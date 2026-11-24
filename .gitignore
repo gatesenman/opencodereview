@@ -1,0 +1,14 @@
+node_modules/
+out/
+dist/
+.DS_Store
+*.log
+.env
+.env.*
+*.local
+.opencodereview/
+resources/bin/*
+!resources/bin/README.md
+!resources/bin/.gitkeep
+*.exe
+config.json
