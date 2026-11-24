@@ -1,4 +1,4 @@
-# OpenCodeReview Desktop 0.2.12
+# OpenCodeReview Desktop 0.2.13
 
 Cross-platform Electron GUI around the official `ocr` / `opencodereview` CLI. This tree is **reconstructed maintainable source** (main / preload / renderer) taken from a Windows 0.1.0 distribution (`app.asar`), then patched so the main loop matches the CLI. It is an independent wrapper, not part of the official [alibaba/open-code-review](https://github.com/alibaba/open-code-review) repository.
 
@@ -20,9 +20,9 @@ npm run dev       # electron-vite development (needs a local Electron + official
 
 `electron` and `esbuild` run postinstall scripts to fetch platform binaries. If `npm install` skips them, approve and rebuild those packages (for example `npm rebuild electron esbuild`).
 
-See [PACKAGING.md](PACKAGING.md) for Windows installer notes, `extraResources` for the official CLI, and what must never go into a source zip or installer (keys, user config, uploaded exes). This repository has no release pipeline in-tree, and no Windows installer is produced from these Linux checks.
+See [PACKAGING.md](PACKAGING.md) for Windows NSIS packaging (`scripts/dist-win.sh`), `extraResources` for a verified official CLI, and what must never go into a source zip or installer (keys, user config, uploaded exes, the fixture CLI). A Linux cross-build of Setup.exe is not a Windows install acceptance test.
 
-A change log for 0.2.1–0.2.12 is in [ITERATION_LOG.md](ITERATION_LOG.md).
+A change log for 0.2.1–0.2.13 is in [ITERATION_LOG.md](ITERATION_LOG.md).
 
 ## What 0.2.x fixes (relative to the 0.1.0 package)
 
@@ -42,7 +42,7 @@ Passing `npm test` or `npm run build` is **not** a completed Windows end-to-end 
 
 On this Linux box, `npm test` and `npm run build` have been run successfully:
 
-- 67 unit/contract tests (argument building, config key rewriting, language mapping, preview parsing, session-to-results mapping, cancel-error detection, single-run / pending-cancel lock, and related contracts). These tests do not open an Electron window or talk to a live CLI or model.
+- 79 unit/contract tests (argument building, config key rewriting, preview/session parsing, cancel-vs-completion rules, aborted/incomplete History empty states, official v1.7.9 stdout fixtures, and related contracts). `npm run test:integration` adds 11 Node spawn tests against a clearly labeled fixture CLI (not a model and not the official binary). These tests do not open an Electron window or talk to a live model.
 - `electron-vite build` emitted `out/main/index.js` (shared modules inlined), `out/preload/index.js`, and the renderer assets.
 
 Still needs a human pass on a real Windows machine with an official CLI, a real repository, and an LLM:

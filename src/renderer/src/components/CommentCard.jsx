@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import hljs from "highlight.js";
 import Icon from "./Icon.jsx";
-
+import { formatSessionTime } from "../../../shared/sessionResults.mjs";
 import {
   SEVERITY_ORDER as SHARED_SEVERITY_ORDER,
   SEVERITIES as SHARED_SEVERITIES,
@@ -70,10 +70,7 @@ export function fmtDuration(ns) {
 }
 
 export function fmtTime(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
+  return formatSessionTime(iso);
 }
 
 export function shortId(id) {

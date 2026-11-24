@@ -74,3 +74,9 @@ All work is on this Linux box. Unit/contract tests run here. Real Windows GUI an
 - **Why:** Individual units can pass while the configure → review → results → history chain still has a mismatch; this is the closest verification this Linux box can do without a Windows GUI or a live model.
 - **Verified:** `npm test` and `npm run build`. Still not verified: a real Windows desktop session, `taskkill /T`, live `ocr config set`, or a review against an LLM.
 
+
+## 0.2.13 — Cancel vs completion, aborted History sessions, Windows pre-release prep
+
+- **What:** Hardened cancel so a user Cancel cannot be overwritten by a later successful CLI exit: the main process treats an aborted signal as cancelled even if the child already printed JSON, escalates SIGTERM with SIGKILL, and the renderer keeps a per-run cancel latch (`shouldCommitRunResult`) and always toasts "Cancelled." instead of jumping to Results. History no longer formats official Go zero-time (`0001-01-01T00:00:00Z`) as `1/1/1`; aborted/incomplete sessions show a Status badge and Results copy that does not say the code is clean. Isolated GUI fixture delay is 18s so cancel can be verified with a clear window. Added unit and integration regression tests (including an 18s cancel window and pending-cancel-before-start). Version is 0.2.13.
+- **Why:** GUI acceptance with the 4s fixture saw Cancel lose to "Review complete" and Results; official `review --preview` writes aborted empty sessions whose zero date and empty state looked like a clean review.
+- **Verified:** `npm test` / `npm run test:all` and `npm run build` on Linux. The 4s GUI cancel failure is not claimed to have a single proven root cause (tool click delay and an app completion race are both consistent with the argv log). Not verified: a real Windows desktop install, signed NSIS, or a live official-CLI cancel on Windows.

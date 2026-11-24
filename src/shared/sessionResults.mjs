@@ -1,3 +1,50 @@
+
+function isMissingSessionTime(iso) {
+  return iso == null || String(iso).trim() === "";
+}
+
+function isPlaceholderSessionTime(iso) {
+  if (isMissingSessionTime(iso)) return true;
+  const s = String(iso).trim();
+  if (/^0001-01-01/.test(s) || /^0000-00-00/.test(s)) return true;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return true;
+  if (d.getUTCFullYear() <= 1) return true;
+  if (d.getTime() <= 0) return true;
+  return false;
+}
+
+/** Official ocr zero-time (year 0001), not merely a missing field. */
+function isGoZeroTime(iso) {
+  return !isMissingSessionTime(iso) && isPlaceholderSessionTime(iso);
+}
+
+function formatSessionTime(iso, locale) {
+  if (isPlaceholderSessionTime(iso)) return "—";
+  const d = new Date(iso);
+  try {
+    return d.toLocaleString(locale);
+  } catch {
+    return d.toISOString();
+  }
+}
+
+function describeSessionRecord(s = {}) {
+  const start = s.start_time || s.startTime || "";
+  const aborted = Boolean(s.aborted || s.cancelled);
+  const files = Number(s.completed_files ?? s.completedFiles ?? 0) || 0;
+  const comments = Number(s.total_comments ?? s.totalComments ?? 0) || 0;
+  const zero = isGoZeroTime(start);
+  const missing = isMissingSessionTime(start);
+  if (aborted) {
+    return { kind: "aborted", label: "Aborted", dateLabel: zero || missing ? "—" : formatSessionTime(start) };
+  }
+  if (zero && files === 0 && comments === 0) {
+    return { kind: "incomplete", label: "Incomplete", dateLabel: "—" };
+  }
+  return { kind: "complete", label: "Completed", dateLabel: formatSessionTime(start) };
+}
+
 function lower(s) {
   return String(s || "").toLowerCase();
 }
@@ -205,6 +252,15 @@ function mapSessionToResult(detail = {}, records = []) {
     },
     session_id: summary.session_id || summary.sessionId || detail.session_id || detail.sessionId || "",
     review_mode: summary.review_mode || summary.reviewMode || detail.review_mode || detail.reviewMode || "",
+    start_time: summary.start_time || summary.startTime || detail.start_time || detail.startTime || "",
+    aborted: Boolean(summary.aborted || detail.aborted || summary.cancelled || detail.cancelled),
+    session_status: describeSessionRecord({
+      aborted: summary.aborted || detail.aborted,
+      cancelled: summary.cancelled || detail.cancelled,
+      start_time: summary.start_time || summary.startTime || detail.start_time || detail.startTime,
+      completed_files: summary.completed_files ?? summary.completedFiles ?? summary.files_reviewed ?? 0,
+      total_comments: summary.total_comments ?? comments.length
+    }).kind,
     _source: "session"
   };
 }
@@ -291,6 +347,11 @@ function parseSessionList(stdout) {
 }
 
 export {
+  isPlaceholderSessionTime,
+  isGoZeroTime,
+  isMissingSessionTime,
+  formatSessionTime,
+  describeSessionRecord,
   isScanMode,
   isWorkspaceMode,
   isCommitMode,

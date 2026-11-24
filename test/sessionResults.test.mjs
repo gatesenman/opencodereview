@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  isPlaceholderSessionTime,
+  formatSessionTime,
+  describeSessionRecord,
   planContinue,
   mapSessionToResult,
   parseJsonl,
@@ -154,5 +157,43 @@ describe("mapSessionToResult edge cases", () => {
     assert.equal(result.summary.elapsed, "2.5s");
     assert.equal(result.warnings[0].message, "watch this");
     assert.equal(result.warnings[1].file, "a.js");
+  });
+});
+
+describe("placeholder session times and aborted history rows", () => {
+  it("does not format Go zero-time as 1/1/1", () => {
+    assert.equal(isPlaceholderSessionTime("0001-01-01T00:00:00Z"), true);
+    assert.equal(isPlaceholderSessionTime(""), true);
+    assert.equal(formatSessionTime("0001-01-01T00:00:00Z"), "—");
+    assert.equal(formatSessionTime("0001-01-01T00:00:00.000Z"), "—");
+    assert.notEqual(formatSessionTime("2026-11-24T04:00:41Z"), "—");
+  });
+
+  it("labels official preview sessions as aborted", () => {
+    const st = describeSessionRecord({
+      start_time: "0001-01-01T00:00:00Z",
+      aborted: true,
+      completed_files: 0,
+      total_comments: 0
+    });
+    assert.equal(st.kind, "aborted");
+    assert.equal(st.dateLabel, "—");
+    assert.equal(st.label, "Aborted");
+  });
+
+  it("marks mapSessionToResult with aborted status for zero-date sessions", () => {
+    const mapped = mapSessionToResult({
+      summary: {
+        session_id: "abc",
+        start_time: "0001-01-01T00:00:00Z",
+        aborted: true,
+        completed_files: 0,
+        total_comments: 0
+      },
+      items: null
+    });
+    assert.equal(mapped.aborted, true);
+    assert.equal(mapped.session_status, "aborted");
+    assert.equal(mapped.comments.length, 0);
   });
 });

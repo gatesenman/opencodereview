@@ -51,3 +51,31 @@ describe("fix prompts", () => {
     assert.equal(master.includes("whitespace"), false);
   });
 });
+
+describe("aborted and incomplete sessions", () => {
+it("does not call an aborted or incomplete session a clean review", () => {
+  const aborted = describeResultState({
+    comments: [],
+    summary: { files_reviewed: 0 },
+    aborted: true,
+    session_status: "aborted",
+    start_time: "0001-01-01T00:00:00Z",
+    _source: "session"
+  });
+  assert.equal(aborted.kind, "aborted");
+  assert.match(aborted.message, /not a completed review|does not mean your code is clean/i);
+
+  const incomplete = describeResultState({
+    comments: [],
+    summary: { files_reviewed: 0 },
+    session_status: "incomplete",
+    start_time: "0001-01-01T00:00:00Z",
+    _source: "session"
+  });
+  assert.equal(incomplete.kind, "incomplete");
+  assert.doesNotMatch(incomplete.message, /looks clean/i);
+
+  const completedClean = describeResultState({ comments: [], summary: { files_reviewed: 0 } });
+  assert.equal(completedClean.kind, "clean");
+});
+});

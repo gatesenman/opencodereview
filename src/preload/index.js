@@ -21,7 +21,10 @@ const api = {
     preview: (o) => ipcRenderer.invoke("scan:preview", o),
     start: (o, total) => ipcRenderer.invoke("scan:start", o, total)
   },
-  cancelRun: (runId) => ipcRenderer.invoke("run:cancel", runId),
+  cancelRun: (runId) => {
+    ipcRenderer.send("run:cancel", runId);
+    return ipcRenderer.invoke("run:cancel", runId);
+  },
   session: {
     list: (repoDir) => ipcRenderer.invoke("session:list", repoDir),
     show: (repoDir, id) => ipcRenderer.invoke("session:show", repoDir, id),

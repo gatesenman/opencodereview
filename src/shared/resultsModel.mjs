@@ -1,3 +1,4 @@
+import { isGoZeroTime } from "./sessionResults.mjs";
 const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3, "": 4 };
 const SEVERITIES = ["critical", "high", "medium", "low"];
 
@@ -47,6 +48,21 @@ function describeResultState(result) {
   const comments = result.comments || [];
   const files = result.summary?.files_reviewed ?? 0;
   if (comments.length) return { kind: "findings", count: comments.length, message: "" };
+  const status = result.session_status || "";
+  if (result.aborted || result.cancelled || status === "aborted") {
+    return {
+      kind: "aborted",
+      message:
+        "This session was aborted or cancelled before it finished. It is not a completed review, and it does not mean your code is clean."
+    };
+  }
+  if (status === "incomplete" || (result._source === "session" && isGoZeroTime(result.start_time) && files === 0)) {
+    return {
+      kind: "incomplete",
+      message:
+        "This session never completed (for example a preview or an interrupted run). There are no review results to show."
+    };
+  }
   if (result._source === "session" && files > 0) {
     return {
       kind: "counts-only",

@@ -1,0 +1,67 @@
+[
+  {
+    "session_id": "1f1c3271-0a67-410a-8279-51ac28f67d19",
+    "file_path": "/workspace/opencodereview-e2e/home-cli/.opencodereview/sessions/workspace-opencodereview-e2e-fixture-repo/1f1c3271-0a67-410a-8279-51ac28f67d19.jsonl",
+    "repo_dir": "/workspace/opencodereview-e2e/fixture-repo",
+    "start_time": "0001-01-01T00:00:00Z",
+    "end_time": "0001-01-01T00:00:00Z",
+    "completed_files": 0,
+    "failed_files": 0,
+    "reused_files": 0,
+    "total_comments": 0,
+    "llm_failures": 0,
+    "aborted": true
+  },
+  {
+    "session_id": "22e2800e-fda8-4955-a8b9-f30ef57cb9a2",
+    "file_path": "/workspace/opencodereview-e2e/home-cli/.opencodereview/sessions/workspace-opencodereview-e2e-fixture-repo/22e2800e-fda8-4955-a8b9-f30ef57cb9a2.jsonl",
+    "repo_dir": "/workspace/opencodereview-e2e/fixture-repo",
+    "start_time": "0001-01-01T00:00:00Z",
+    "end_time": "0001-01-01T00:00:00Z",
+    "completed_files": 0,
+    "failed_files": 0,
+    "reused_files": 0,
+    "total_comments": 0,
+    "llm_failures": 0,
+    "aborted": true
+  },
+  {
+    "session_id": "79ed465d-ff26-4e88-949b-c3cde3c3caca",
+    "file_path": "/workspace/opencodereview-e2e/home-cli/.opencodereview/sessions/workspace-opencodereview-e2e-fixture-repo/79ed465d-ff26-4e88-949b-c3cde3c3caca.jsonl",
+    "repo_dir": "/workspace/opencodereview-e2e/fixture-repo",
+    "start_time": "0001-01-01T00:00:00Z",
+    "end_time": "0001-01-01T00:00:00Z",
+    "completed_files": 0,
+    "failed_files": 0,
+    "reused_files": 0,
+    "total_comments": 0,
+    "llm_failures": 0,
+    "aborted": true
+  },
+  {
+    "session_id": "b6742ce2-2d83-4632-b501-ee310b759721",
+    "file_path": "/workspace/opencodereview-e2e/home-cli/.opencodereview/sessions/workspace-opencodereview-e2e-fixture-repo/b6742ce2-2d83-4632-b501-ee310b759721.jsonl",
+    "repo_dir": "/workspace/opencodereview-e2e/fixture-repo",
+    "start_time": "0001-01-01T00:00:00Z",
+    "end_time": "0001-01-01T00:00:00Z",
+    "completed_files": 0,
+    "failed_files": 0,
+    "reused_files": 0,
+    "total_comments": 0,
+    "llm_failures": 0,
+    "aborted": true
+  },
+  {
+    "session_id": "e6027d4d-4829-43ca-ace2-d16728e74c2b",
+    "file_path": "/workspace/opencodereview-e2e/home-cli/.opencodereview/sessions/workspace-opencodereview-e2e-fixture-repo/e6027d4d-4829-43ca-ace2-d16728e74c2b.jsonl",
+    "repo_dir": "/workspace/opencodereview-e2e/fixture-repo",
+    "start_time": "0001-01-01T00:00:00Z",
+    "end_time": "0001-01-01T00:00:00Z",
+    "completed_files": 0,
+    "failed_files": 0,
+    "reused_files": 0,
+    "total_comments": 0,
+    "llm_failures": 0,
+    "aborted": true
+  }
+]

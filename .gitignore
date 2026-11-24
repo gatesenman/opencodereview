@@ -12,3 +12,6 @@ resources/bin/*
 !resources/bin/.gitkeep
 *.exe
 config.json
+release-build/
+release/
+build-resources/

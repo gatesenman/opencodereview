@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useApp } from "../App.jsx";
 import Icon from "../components/Icon.jsx";
-import { fmtDuration, fmtTime, shortId } from "../components/CommentCard.jsx";
-import { planContinue, isScanMode, parseSessionList } from "../../../shared/sessionResults.mjs";
+import { fmtDuration, shortId } from "../components/CommentCard.jsx";
+import { planContinue, isScanMode, parseSessionList, describeSessionRecord } from "../../../shared/sessionResults.mjs";
 import { isActivateKey } from "../../../shared/a11y.mjs";
 
 export default function HistoryView() {
@@ -38,7 +38,11 @@ export default function HistoryView() {
     try {
       const opened = await window.ocr.session.open(repoDir, id);
       goResults(opened.result, opened.title || "Session");
-      if (!opened.result?.comments?.length) {
+      if (opened.result?.aborted || opened.result?.session_status === "aborted") {
+        toast("This session was aborted or never completed. It is not a clean review.", "ok");
+      } else if (opened.result?.session_status === "incomplete") {
+        toast("This session is incomplete (for example a preview). No review results were saved.", "ok");
+      } else if (!opened.result?.comments?.length) {
         toast("Opened the session. Full finding text was not in the saved metadata; only counts may be available.", "ok");
       }
     } catch (err) {
@@ -85,6 +89,7 @@ export default function HistoryView() {
             <thead>
               <tr>
                 <th>Started</th>
+                <th>Status</th>
                 <th>Mode</th>
                 <th>Branch / range</th>
                 <th>Model</th>
@@ -99,6 +104,7 @@ export default function HistoryView() {
                 const id = s.session_id || s.sessionId;
                 const scan = isScanMode(s.review_mode);
                 const plan = planContinue(s);
+                const status = describeSessionRecord(s);
                 return (
                   <tr
                     key={id}
@@ -112,7 +118,10 @@ export default function HistoryView() {
                       }
                     }}
                   >
-                    <td>{fmtTime(s.start_time)}</td>
+                    <td>{status.dateLabel}</td>
+                    <td>
+                      <span className="pill">{status.label}</span>
+                    </td>
                     <td>
                       <span className="ico-text">
                         {s.review_mode}

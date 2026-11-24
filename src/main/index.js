@@ -1,59 +1,20 @@
 import electron from "electron";
 import path from "path";
 import crypto from "crypto";
-import child_process from "child_process";
 import fs from "fs";
-import os from "os";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-import { validateConfigMutation } from "../shared/configKeys.mjs";
 import {
   listBinaryCandidates,
   resolveBinaryPath,
-  explainSpawnError,
   describeBinaryStatus
 } from "../shared/binary.mjs";
-import {
-  buildReviewArgs,
-  buildScanArgs,
-  parseJsonResult,
-  parsePreview,
-  previewLooksEmpty
-} from "../shared/cliArgs.mjs";
-import { cancelledError, isCancelError } from "../shared/runErrors.mjs";
-import { createRunLock } from "../shared/runLock.mjs";
 import { windowBackground, normalizeTheme } from "../shared/themeTokens.mjs";
-import { mapSessionToResult, parseJsonl, parseSessionList, resultTitleFromSession } from "../shared/sessionResults.mjs";
+import { createOcrRuntime } from "./ocrService.mjs";
 
-function ocrHome() {
-  return path.join(os.homedir(), ".opencodereview");
-}
-function configPath() {
-  return path.join(ocrHome(), "config.json");
-}
-function sessionsRoot() {
-  return path.join(ocrHome(), "sessions");
-}
-function encodeRepoPath(p) {
-  if (!p) return "empty";
-  let vol = "";
-  const m = /^([A-Za-z]:)/.exec(p);
-  if (m) {
-    vol = m[1];
-    p = p.slice(vol.length);
-  }
-  p = p.replace(/^[/\\]+/, "");
-  p = p.replace(/[/\\]/g, "-");
-  vol = vol.replace(/:/g, "_");
-  const result = vol + p;
-  return result === "" ? "empty" : result;
-}
-function sessionsDirForRepo(repoDir) {
-  return path.join(sessionsRoot(), encodeRepoPath(repoDir));
-}
 function settingsPath() {
   return path.join(electron.app.getPath("userData"), "settings.json");
 }
@@ -95,246 +56,9 @@ function binaryStatus() {
   return describeBinaryStatus(currentBinaryCandidates(), (p) => fs.existsSync(p));
 }
 
-function baseEnv() {
-  return { ...process.env, OCR_NO_UPDATE: "1" };
-}
-
-function killProcessTree(child) {
-  if (!child?.pid) return;
-  if (process.platform === "win32") {
-    child_process.spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-      windowsHide: true,
-      stdio: "ignore"
-    });
-    return;
-  }
-  try {
-    process.kill(child.pid, "SIGTERM");
-  } catch {
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      /* already gone */
-    }
-  }
-}
-
-function run(args, opts = {}) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-
-    const child = child_process.spawn(resolveBinary(), args, {
-      cwd: opts.cwd,
-      env: opts.env ?? baseEnv(),
-      windowsHide: true
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (d) => {
-      const s = d.toString();
-      stdout += s;
-      opts.onStdout?.(s);
-    });
-    child.stderr?.on("data", (d) => {
-      const s = d.toString();
-      stderr += s;
-      opts.onStderr?.(s);
-    });
-
-    const onAbort = () => {
-      killProcessTree(child);
-    };
-    if (opts.signal) {
-      if (opts.signal.aborted) onAbort();
-      else opts.signal.addEventListener("abort", onAbort, { once: true });
-    }
-
-    child.on("error", (err) => {
-      if (opts.signal?.aborted) {
-        finish({ ok: false, cancelled: true, code: null, stdout, stderr });
-        return;
-      }
-      const message = explainSpawnError(err, { platform: process.platform });
-      finish({ ok: false, code: null, stdout, stderr: stderr ? `${stderr}\n${message}` : message });
-    });
-    child.on("close", (code) => {
-      if (opts.signal?.aborted) {
-        finish({ ok: false, cancelled: true, code, stdout, stderr });
-        return;
-      }
-      finish({ ok: code === 0, code, stdout, stderr });
-    });
-  });
-}
-
-async function version() {
-  const r = await run(["version"]);
-  return (r.stdout || r.stderr).trim();
-}
-
-async function reviewPreview(o) {
-  const args = buildReviewArgs(o, { preview: true });
-  const r = await run(args, { cwd: o.repoDir });
-  if (!r.ok && previewLooksEmpty(r.stdout)) {
-    throw new Error(r.stderr.trim() || "preview failed");
-  }
-  return parsePreview(r.stdout);
-}
-
-async function scanPreview(o) {
-  const args = buildScanArgs(o, { preview: true });
-  const r = await run(args, { cwd: o.repoDir });
-  if (!r.ok && previewLooksEmpty(r.stdout)) {
-    throw new Error(r.stderr.trim() || "scan preview failed");
-  }
-  return parsePreview(r.stdout);
-}
-
-function countSessionProgress(file) {
-  const p = { completed: 0, reused: 0, failed: 0 };
-  let data = "";
-  try {
-    data = fs.readFileSync(file, "utf8");
-  } catch {
-    return p;
-  }
-  for (const line of data.split("\n")) {
-    if (!line.trim()) continue;
-    let rec;
-    try {
-      rec = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    const f = rec.filePath || rec.newPath || rec.file_path || rec.new_path;
-    switch (rec.type) {
-      case "review_item_done":
-        p.completed++;
-        if (f) p.currentFile = f;
-        break;
-      case "review_item_reused":
-        p.reused++;
-        if (f) p.currentFile = f;
-        break;
-      case "review_item_failed":
-        p.failed++;
-        if (f) p.currentFile = f;
-        break;
-    }
-  }
-  return p;
-}
-
-function newestSessionFile(repoDir, since) {
-  const dir = sessionsDirForRepo(repoDir);
-  let best = null;
-  let bestMtime = since - 1;
-  try {
-    for (const name of fs.readdirSync(dir)) {
-      if (!name.endsWith(".jsonl")) continue;
-      const full = path.join(dir, name);
-      const m = fs.statSync(full).mtimeMs;
-      if (m >= since && m > bestMtime) {
-        bestMtime = m;
-        best = full;
-      }
-    }
-  } catch {
-    return null;
-  }
-  return best;
-}
-
-function findSessionJsonl(repoDir, sessionId) {
-  if (!sessionId) return null;
-  const dir = sessionsDirForRepo(repoDir);
-  const exact = [
-    path.join(dir, `${sessionId}.jsonl`),
-    path.join(dir, sessionId)
-  ];
-  for (const p of exact) {
-    if (fs.existsSync(p) && fs.statSync(p).isFile()) return p;
-  }
-  try {
-    const names = fs.readdirSync(dir);
-    const match = names.find((n) => n.includes(sessionId) && n.endsWith(".jsonl"));
-    if (match) return path.join(dir, match);
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-async function runStreaming(args, cwd, opts) {
-  const started = Date.now();
-  let sessionFile = null;
-  const emit = (phase, extra = {}) => {
-    opts.onProgress({
-      runId: opts.runId,
-      phase,
-      total: opts.total,
-      completed: 0,
-      reused: 0,
-      failed: 0,
-      elapsedMs: Date.now() - started,
-      ...extra
-    });
-  };
-  emit("starting");
-  const poll = setInterval(() => {
-    if (opts.signal?.aborted) return;
-    if (!sessionFile) sessionFile = newestSessionFile(cwd, started - 2000);
-    if (!sessionFile) {
-      emit("reviewing");
-      return;
-    }
-    const p = countSessionProgress(sessionFile);
-    emit("reviewing", {
-      completed: p.completed,
-      reused: p.reused,
-      failed: p.failed,
-      currentFile: p.currentFile
-    });
-  }, 500);
-
-  try {
-    const r = await run(args, { cwd, signal: opts.signal });
-    if (r.cancelled || opts.signal?.aborted) {
-      emit("cancelled", { message: "Run cancelled" });
-      throw cancelledError("Run cancelled");
-    }
-    if (!r.ok && !r.stdout.trim()) {
-      emit("error", { message: r.stderr.trim() });
-      throw new Error(r.stderr.trim() || `ocr exited with code ${r.code}`);
-    }
-    const parsed = parseJsonResult(r.stdout);
-    if (!parsed) {
-      emit("error", { message: r.stderr.trim() || "could not parse result" });
-      throw new Error(r.stderr.trim() || "could not parse review result JSON");
-    }
-    emit("done", {
-      completed: parsed.summary?.files_reviewed ?? 0,
-      message: parsed.message
-    });
-    return parsed;
-  } finally {
-    clearInterval(poll);
-  }
-}
-
-function readConfigRaw(p) {
-  try {
-    return fs.readFileSync(p, "utf8");
-  } catch {
-    return null;
-  }
-}
+const runtime = createOcrRuntime({
+  resolveBinary: () => resolveBinary()
+});
 
 const REPO = "alibaba/open-code-review";
 const URL_PATTERN = "https://github.com/alibaba/open-code-review/releases/download/v{version}/opencodereview-{os}-{arch}";
@@ -380,7 +104,7 @@ function compareSemver(a, b) {
 }
 
 async function checkForUpdates() {
-  const currentRaw = await version();
+  const currentRaw = await runtime.version();
   const currentVersion = parseCliVersion(currentRaw);
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
@@ -448,176 +172,39 @@ async function downloadUpdate(info) {
   }
 }
 
-const runLock = createRunLock();
-
-function parseProvidersTable(text) {
-  const clean = text.replace(/\x1b\[[0-9;]*m/g, "");
-  const out = [];
-  for (const line of clean.split(/\r?\n/)) {
-    const t = line.trim();
-    if (!t || /^NAME\b/.test(t) || /^-+/.test(t)) continue;
-    const cols = t.split(/\s{2,}/);
-    if (cols.length >= 3 && /^https?:\/\//.test(cols[2])) {
-      out.push({ name: cols[0], protocol: cols[1], base_url: cols[2] });
-    }
-  }
-  return out;
-}
-
-function parseLlmTest(stdout, stderr, ok) {
-  if (!ok) return { ok: false, error: (stderr || stdout).trim() };
-  const result = { ok: true };
-  const contentLines = [];
-  for (const line of stdout.split(/\r?\n/)) {
-    const src = /^Source:\s*(.*)$/.exec(line);
-    const url = /^URL:\s*(.*)$/.exec(line);
-    const model = /^Model:\s*(.*)$/.exec(line);
-    if (src) result.source = src[1].trim();
-    else if (url) result.url = url[1].trim();
-    else if (model) result.model = model[1].trim();
-    else if (/Connection test successful/.test(line)) continue;
-    else if (line.trim()) contentLines.push(line);
-  }
-  result.content = contentLines.join("\n").trim();
-  return result;
-}
-
-function parseRuleDetail(stdout) {
-  const clean = stdout.replace(/\x1b\[[0-9;]*m/g, "");
-  const lines = clean.split(/\r?\n/);
-  const detail = { file: "", source: "", pattern: "", rule: "" };
-  const ruleLines = [];
-  let inRule = false;
-  for (const line of lines) {
-    if (/^File:\s*/.test(line)) detail.file = line.replace(/^File:\s*/, "").trim();
-    else if (/^Source:\s*/.test(line)) detail.source = line.replace(/^Source:\s*/, "").trim();
-    else if (/^Pattern:\s*/.test(line)) detail.pattern = line.replace(/^Pattern:\s*/, "").trim();
-    else if (/^Rule:\s*$/.test(line)) inRule = true;
-    else if (/^─+$/.test(line)) continue;
-    else if (inRule) ruleLines.push(line);
-  }
-  detail.rule = ruleLines.join("\n").trim();
-  return detail;
-}
-
-function serializeIpcError(err) {
-  if (isCancelError(err)) {
-    const e = new Error(err.message || "Run cancelled");
-    e.code = "OCR_CANCELLED";
-    return e;
-  }
-  return err;
-}
-
-async function startKind(kind, e, o, total) {
-  const runId = o.runId || crypto.randomUUID();
-  const slot = runLock.begin(runId);
-  if (slot.cancelled) {
-    throw cancelledError("Run cancelled");
-  }
-  if (slot.busy) {
-    throw new Error("A review or scan is already running. Cancel it before starting another.");
-  }
-  const win = electron.BrowserWindow.fromWebContents(e.sender);
-  const args = kind === "scan" ? buildScanArgs(o, { json: true }) : buildReviewArgs(o, { json: true });
-  try {
-    return await runStreaming(args, o.repoDir, {
-      runId,
-      total,
-      signal: slot.controller.signal,
-      onProgress: (ev) => win?.webContents.send("ocr:progress", ev)
-    });
-  } catch (err) {
-    throw serializeIpcError(err);
-  } finally {
-    runLock.end(runId);
-  }
-}
-
 function registerIpc() {
-  electron.ipcMain.handle("app:version", () => version());
+  electron.ipcMain.handle("app:version", () => runtime.version());
   electron.ipcMain.handle("binary:status", () => binaryStatus());
 
-  electron.ipcMain.handle("config:read", () => {
-    const raw = readConfigRaw(configPath());
-    if (!raw) return {};
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return {};
-    }
+  electron.ipcMain.handle("config:read", () => runtime.readConfig());
+  electron.ipcMain.handle("config:set", async (_e, key, value) => runtime.setConfig(key, value));
+  electron.ipcMain.handle("config:unset", async (_e, key) => runtime.unsetConfig(key));
+  electron.ipcMain.handle("llm:providers", async () => runtime.listProviders());
+  electron.ipcMain.handle("llm:test", async () => runtime.testLlm());
+  electron.ipcMain.handle("review:preview", (_e, o) => runtime.reviewPreview(o));
+  electron.ipcMain.handle("scan:preview", (_e, o) => runtime.scanPreview(o));
+  electron.ipcMain.handle("review:start", (e, o, total) => {
+    const win = electron.BrowserWindow.fromWebContents(e.sender);
+    return runtime.startKind("review", o, total, {
+      onProgress: (ev) => win?.webContents.send("ocr:progress", ev)
+    });
   });
-  electron.ipcMain.handle("config:set", async (_e, key, value) => {
-    const mutation = validateConfigMutation(key, value);
-    if (!mutation.ok) throw new Error(mutation.error);
-    const r = await run(["config", "set", mutation.key, String(mutation.value)]);
-    if (!r.ok) throw new Error((r.stderr || r.stdout).trim() || "config set failed");
-    return { ok: true, key: mutation.key };
+  electron.ipcMain.handle("scan:start", (e, o, total) => {
+    const win = electron.BrowserWindow.fromWebContents(e.sender);
+    return runtime.startKind("scan", o, total, {
+      onProgress: (ev) => win?.webContents.send("ocr:progress", ev)
+    });
   });
-  electron.ipcMain.handle("config:unset", async (_e, key) => {
-    const mutation = validateConfigMutation(key, "", { unset: true });
-    if (!mutation.ok) throw new Error(mutation.error);
-    const r = await run(["config", "unset", mutation.key]);
-    if (!r.ok) throw new Error((r.stderr || r.stdout).trim() || "config unset failed");
-    return { ok: true, key: mutation.key };
-  });
-  electron.ipcMain.handle("llm:providers", async () => {
-    const r = await run(["llm", "providers"]);
-    return parseProvidersTable(r.stdout);
-  });
-  electron.ipcMain.handle("llm:test", async () => {
-    const r = await run(["llm", "test"]);
-    return parseLlmTest(r.stdout, r.stderr, r.ok);
-  });
-  electron.ipcMain.handle("review:preview", (_e, o) => reviewPreview(o));
-  electron.ipcMain.handle("scan:preview", (_e, o) => scanPreview(o));
-  electron.ipcMain.handle("review:start", (e, o, total) => startKind("review", e, o, total));
-  electron.ipcMain.handle("scan:start", (e, o, total) => startKind("scan", e, o, total));
+  const onCancel = (_e, runId) => runtime.cancel(runId);
+  electron.ipcMain.on("run:cancel", onCancel);
   electron.ipcMain.handle("run:cancel", (_e, runId) => {
-    runLock.cancel(runId);
+    onCancel(_e, runId);
     return true;
   });
-  electron.ipcMain.handle("session:list", async (_e, repoDir) => {
-    const r = await run(["session", "list", "--json", "--limit", "0"], { cwd: repoDir });
-    if (!r.ok && !r.stdout.trim()) throw new Error((r.stderr || "").trim() || "session list failed");
-    return parseSessionList(r.stdout);
-  });
-  electron.ipcMain.handle("session:show", async (_e, repoDir, id) => {
-    const r = await run(["session", "show", "--json", id], { cwd: repoDir });
-    if (!r.ok && !r.stdout.trim()) throw new Error((r.stderr || "").trim());
-    return JSON.parse(r.stdout);
-  });
-  electron.ipcMain.handle("session:open", async (_e, repoDir, id) => {
-    const r = await run(["session", "show", "--json", id], { cwd: repoDir });
-    if (!r.ok && !r.stdout.trim()) throw new Error((r.stderr || "").trim());
-    let detail;
-    try {
-      detail = JSON.parse(r.stdout);
-    } catch (err) {
-      throw new Error((r.stderr || "").trim() || "could not parse session JSON");
-    }
-    const jsonlPath = findSessionJsonl(repoDir, id);
-    let records = [];
-    if (jsonlPath) {
-      try {
-        records = parseJsonl(fs.readFileSync(jsonlPath, "utf8"));
-      } catch {
-        records = [];
-      }
-    }
-    const result = mapSessionToResult(detail, records);
-    return {
-      detail,
-      result,
-      title: resultTitleFromSession(detail),
-      sourceFile: jsonlPath
-    };
-  });
-  electron.ipcMain.handle("rules:check", async (_e, repoDir, file) => {
-    const r = await run(["rules", "check", file], { cwd: repoDir });
-    if (!r.ok && !r.stdout.trim()) throw new Error((r.stderr || "").trim());
-    return parseRuleDetail(r.stdout);
-  });
+  electron.ipcMain.handle("session:list", async (_e, repoDir) => runtime.listSessions(repoDir));
+  electron.ipcMain.handle("session:show", async (_e, repoDir, id) => runtime.showSession(repoDir, id));
+  electron.ipcMain.handle("session:open", async (_e, repoDir, id) => runtime.openSession(repoDir, id));
+  electron.ipcMain.handle("rules:check", async (_e, repoDir, file) => runtime.checkRules(repoDir, file));
   electron.ipcMain.handle("update:check", () => checkForUpdates());
   electron.ipcMain.handle("update:download", (_e, info) => downloadUpdate(info));
   electron.ipcMain.handle("settings:get", () => loadSettings());

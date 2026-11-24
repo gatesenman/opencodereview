@@ -10,6 +10,7 @@ import RulesView from "./views/RulesView.jsx";
 import AboutView from "./views/AboutView.jsx";
 import { applyTheme } from "./theme.js";
 import { isCancelError, classifyRunError } from "../../shared/runErrors.mjs";
+import { shouldCommitRunResult } from "../../shared/runOutcome.mjs";
 import { isCancelKey } from "../../shared/a11y.mjs";
 
 const Ctx = createContext(null);
@@ -38,6 +39,7 @@ export default function App() {
   const [progress, setProgress] = useState(null);
   const [runKind, setRunKind] = useState("review");
   const runRef = useRef({ cancelled: false, runId: null });
+  const cancelledIds = useRef(new Set());
   const toastTimer = useRef(null);
 
   useEffect(() => {
@@ -72,6 +74,9 @@ export default function App() {
 
   useEffect(() => {
     const off = window.ocr.onProgress((e) => {
+      if (e?.runId && cancelledIds.current.has(e.runId) && e.phase === "done") {
+        return;
+      }
       if (!runRef.current.runId || e.runId === runRef.current.runId) {
         setProgress(e);
         if (e.runId) runRef.current.runId = e.runId;
@@ -93,6 +98,7 @@ export default function App() {
         return { error: new Error("already running") };
       }
       const runId = crypto.randomUUID();
+      cancelledIds.current.delete(runId);
       runRef.current = { cancelled: false, runId };
       setRunKind(kind);
       setRunning(true);
@@ -108,14 +114,26 @@ export default function App() {
       try {
         const fn = kind === "scan" ? window.ocr.scan.start : window.ocr.review.start;
         const next = await fn({ ...opts, runId }, total);
-        if (runRef.current.cancelled || runRef.current.runId !== runId) {
+        if (
+          !shouldCommitRunResult({
+            runId,
+            activeRunId: runRef.current.runId,
+            cancelled: runRef.current.cancelled,
+            cancelledIds: cancelledIds.current
+          })
+        ) {
+          toast("Cancelled.");
           return { cancelled: true };
         }
         goResults(next, title);
         toast(`${kind === "scan" ? "Scan" : "Review"} complete: ${next.comments?.length ?? 0} finding(s).`);
         return { result: next };
       } catch (err) {
-        if (isCancelError(err) || runRef.current.cancelled) {
+        if (
+          isCancelError(err) ||
+          runRef.current.cancelled ||
+          cancelledIds.current.has(runId)
+        ) {
           toast("Cancelled.");
           return { cancelled: true };
         }
@@ -135,6 +153,7 @@ export default function App() {
   const cancelRun = useCallback(() => {
     const id = runRef.current.runId || progress?.runId;
     runRef.current.cancelled = true;
+    if (id) cancelledIds.current.add(id);
     if (id) window.ocr.cancelRun(id);
   }, [progress]);
 
